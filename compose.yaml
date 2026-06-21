@@ -1,0 +1,85 @@
+services:
+  proxy-traefik:
+    image: traefik:v3.0.1
+    restart: always
+    networks:
+      - traefik-proxy
+    ports:
+      - 8080:80      ### Host Port 8080 -> Traefik 進入點 80
+      - 8443:443     ### Host Port 8443 -> Traefik 進入點 443
+      # - 8880:8080  ### Host Port 8880 -> Traefik Dashboard at Port 8080
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./acme.json:/acme.json
+      - ./acme-staging.json:/acme-staging.json
+      - ./logs/traefik.log:/traefik/logs/traefik.log
+      - ./traefik.d:/traefik/traefik.d
+    command:
+      - --providers.docker
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/traefik/traefik.d
+
+      ### 定義兩個進入點
+      - --entrypoints.web.address=:80
+      # - --entrypoints.web.proxyProtocol.trustedIPs=xxx.xxx.xxx.xxx/32
+      # - --entrypoints.web.proxyProtocol.insecure=true
+      - --entrypoints.websecure.address=:443
+      # - --entrypoints.websecure.proxyProtocol.trustedIPs=xxx.xxx.xxx.xxx/32
+      # - --entrypoints.websecure.proxyProtocol.insecure=true
+
+      ### 憑證解析器設定
+      - --certificatesresolvers.letsencrypt.acme.tlsChallenge=true
+      - --certificatesresolvers.letsencrypt.acme.email=my-email@email.com
+      - --certificatesresolvers.letsencrypt.acme.storage=./acme.json
+      #- --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      #- --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+
+      ### staging 憑證解析器設定 (測試用)
+      - --certificatesresolvers.staging-letsencrypt.acme.tlsChallenge=true
+      - --certificatesresolvers.staging-letsencrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory
+      - --certificatesresolvers.staging-letsencrypt.acme.email=my-email@email.com
+      - --certificatesresolvers.staging-letsencrypt.acme.storage=./acme-staging.json
+      # - --certificatesresolvers.staging-letsencrypt.acme.httpchallenge=true
+      # - --certificatesresolvers.staging-letsencrypt.acme.httpchallenge.entrypoint=web
+
+      ### Traefik Dashboard & Log 設定
+      - --api.dashboard=true
+      # - --api.insecure=true
+      - --accessLog=true
+      - --accessLog.filePath=/traefik/logs/traefik.log
+      - --accessLog.bufferingSize=100
+    labels:
+      - "traefik.enable=true"
+
+      ### 宣告一個全域通用的「跳轉中間件」，從 HTTP 強制跳轉到 HTTPS
+      - "traefik.http.middlewares.global-redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.global-redirect-to-https.redirectscheme.permanent=true"
+
+      ### watchtower 自動更新 Traefik Docker Image 設定，預設為 false (不更新)
+      # - "com.centurylinklabs.watchtower.enable=false"
+
+      # --------------------------------------------------------
+      # 讓外網可以安全連進 Dashboard 的 Labels 設定 (走 HTTPS)
+      # --------------------------------------------------------
+      ### HTTP 路由：抓 80 埠流量並強制跳轉到 HTTPS
+      - "traefik.http.routers.mydash-http.entrypoints=web"
+      - "traefik.http.routers.mydash-http.rule=Host(`traefik.mydomain.com`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+      - "traefik.http.routers.mydash-http.middlewares=global-redirect-to-https@docker"
+
+      ### HTTPS 路由：負責安全存取 Traefik Dashboard
+      - "traefik.http.routers.mydash-ssl.entrypoints=websecure"
+      - "traefik.http.routers.mydash-ssl.rule=Host(`traefik.mydomain.com`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+      - "traefik.http.routers.mydash-ssl.service=api@internal" # 連接到內建的 dashboard 服務
+      - "traefik.http.routers.mydash-ssl.tls=true"
+      - "traefik.http.routers.mydash-ssl.tls.certresolver=letsencrypt"
+
+      ### [Optional] 🔐 定義密碼驗證中間件 (注意：如果你在 docker-compose 內寫，金鑰裡的 $ 必須寫成 $$ 轉義)
+      - "traefik.http.middlewares.traefik-dashboard-auth.basicauth.users=authusername:$$2a$$10$$xxxxxxxxxxx"
+
+      ### [Optional] 在 HTTPS 路由掛載 traefik-dashboard-auth 中間件
+      - "traefik.http.routers.mydash-ssl.middlewares=traefik-dashboard-auth"
+
+networks:
+  traefik-proxy:
+    driver: bridge
+    name: traefik
