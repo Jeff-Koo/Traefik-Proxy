@@ -5,46 +5,80 @@ services:
     networks:
       - traefik-proxy
     ports:
+      ### 【注意】HTTP challenge 強制需要外部 Port 80。若主機對外不是 80 (例如此處所寫 8080)，
+      ### 除非上層有反向代理或 NAT 將 80 轉進 8080，否則 Let's Encrypt (HTTP challenge) 會驗證失敗。
       - 8080:80      ### Host Port 8080 -> Traefik 進入點 80
       - 8443:443     ### Host Port 8443 -> Traefik 進入點 443
-      # - 8880:8080  ### Host Port 8880 -> Traefik Dashboard at Port 8080
+      # - 8880:8080  ### Host Port 8880 -> Traefik Dashboard at Port 8080 (insecure 模式用)
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./acme.json:/acme.json
-      - ./acme-staging.json:/acme-staging.json
+      - /var/run/docker.sock:/var/run/docker.sock  # 允許 Traefik 監聽 Docker 事件以動態發現服務
+      - ./acme.json:/acme.json                     # 存放 Production 憑證的金鑰檔案
+      - ./acme-staging.json:/acme-staging.json     # 存放 Staging 測試憑證的金鑰檔案
       - ./logs/traefik.log:/traefik/logs/traefik.log
-      - ./traefik.d:/traefik/traefik.d
+      - ./traefik.d:/traefik/traefik.d             # 外部動態設定目錄（File Provider）
+    environment:
+      ### CloudFlare DNS Challenge Provider 所需環境變數（需在同目錄下的 .env 檔案中定義）
+      ### 如果 .env 沒寫，啟動時會噴出警告並帶入 "MISSING_CF_ENV" 讓錯誤在日誌中更明顯
+      - CF_API_EMAIL=${CF_API_EMAIL:-MISSING_CF_ENV}
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN:-MISSING_CF_ENV}
+      ### Aliyun DNS Challenge Provider 所需環境變數（需在同目錄下的 .env 檔案中定義）
+      ### 如果 .env 沒寫，啟動時會噴出警告並帶入 "MISSING_ALICLOUD_ENV" 讓錯誤在日誌中更明顯
+      - ALICLOUD_ACCESS_KEY=${ALICLOUD_ACCESS_KEY:-MISSING_ALICLOUD_ENV}
+      - ALICLOUD_SECRET_KEY=${ALICLOUD_SECRET_KEY:-MISSING_ALICLOUD_ENV}
     command:
       - --providers.docker
-      - --providers.docker.exposedbydefault=false
+      - --providers.docker.exposedbydefault=false     # 安全防護：只有加上 traefik.enable=true 的容器才會被代理
       - --providers.file.directory=/traefik/traefik.d
 
       ### 定義兩個進入點
       - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+
+      ### [Optional] Get the trustedIPs with command:
+      ###  docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' traefik-proxy-traefik-1
       # - --entrypoints.web.proxyProtocol.trustedIPs=xxx.xxx.xxx.xxx/32
       # - --entrypoints.web.proxyProtocol.insecure=true
-      - --entrypoints.websecure.address=:443
       # - --entrypoints.websecure.proxyProtocol.trustedIPs=xxx.xxx.xxx.xxx/32
       # - --entrypoints.websecure.proxyProtocol.insecure=true
 
-      ### 憑證解析器設定
-      - --certificatesresolvers.letsencrypt.acme.tlsChallenge=true
+      ### 憑證解析器設定 - HTTP challenge (require :80)
+      - --certificatesresolvers.letsencrypt-http.acme.email=my-email@email.com
+      - --certificatesresolvers.letsencrypt-http.acme.storage=./acme.json
+      - --certificatesresolvers.letsencrypt-http.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt-http.acme.httpchallenge.entrypoint=web # 指定用來接收驗證流量的進入點
+
+      ### 憑證解析器設定 - TLS-ALPN-01 challenge (require :443)
       - --certificatesresolvers.letsencrypt.acme.email=my-email@email.com
       - --certificatesresolvers.letsencrypt.acme.storage=./acme.json
-      #- --certificatesresolvers.letsencrypt.acme.httpchallenge=true
-      #- --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.letsencrypt.acme.tlsChallenge=true
 
-      ### staging 憑證解析器設定 (測試用)
-      - --certificatesresolvers.staging-letsencrypt.acme.tlsChallenge=true
-      - --certificatesresolvers.staging-letsencrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory
+      ### staging 憑證解析器設定 - TLS-ALPN-01 challenge (測試用，避免因頻繁測試觸獲 Let's Encrypt 頻率限制)
       - --certificatesresolvers.staging-letsencrypt.acme.email=my-email@email.com
       - --certificatesresolvers.staging-letsencrypt.acme.storage=./acme-staging.json
-      # - --certificatesresolvers.staging-letsencrypt.acme.httpchallenge=true
-      # - --certificatesresolvers.staging-letsencrypt.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.staging-letsencrypt.acme.tlsChallenge=true
+      - --certificatesresolvers.staging-letsencrypt.acme.caServer=https://acme-staging-v02.api.letsencrypt.org/directory
+
+      ### 憑證解析器設定 - DNS-01 challenge (using Aliyun DNS record)
+      - --certificatesresolvers.aliyun.acme.email=my-email@email.com
+      - --certificatesresolvers.aliyun.acme.storage=./acme.json
+      - --certificatesresolvers.aliyun.acme.caServer=https://acme-v02.api.letsencrypt.org/directory # production (default)
+      - --certificatesresolvers.aliyun.acme.dnsChallenge=true
+      - --certificatesresolvers.aliyun.acme.dnsChallenge.provider=alidns
+      - --certificatesresolvers.aliyun.acme.dnsChallenge.delayBeforeCheck=120 # 阿里雲 DNS 生效較慢，設 120 秒較安全
+      - --certificatesresolvers.aliyun.acme.dnsChallenge.disablePropagationCheck=true
+      - --certificatesresolvers.aliyun.acme.dnsChallenge.resolvers=114.114.114.114:53,223.5.5.5:53,1.1.1.1:53
+
+      ### 憑證解析器設定 - DNS-01 challenge (using Cloudflare DNS record)
+      - --certificatesresolvers.cloudflare.acme.email=my-email@email.com
+      - --certificatesresolvers.cloudflare.acme.storage=./acme.json
+      - --certificatesresolvers.cloudflare.acme.caServer=https://acme-v02.api.letsencrypt.org/directory # production (default)
+      - --certificatesresolvers.cloudflare.acme.dnsChallenge=true
+      - --certificatesresolvers.cloudflare.acme.dnsChallenge.provider=cloudflare
+      - --certificatesresolvers.cloudflare.acme.dnsChallenge.delayBeforeCheck=10 # Cloudflare 生效極快，10 秒即可
 
       ### Traefik Dashboard & Log 設定
       - --api.dashboard=true
-      # - --api.insecure=true
+      # - --api.insecure=true  # insecure 模式設定。生產環境強烈建議保持註解停用，改走下方的安全 Label 路由
       - --accessLog=true
       - --accessLog.filePath=/traefik/logs/traefik.log
       - --accessLog.bufferingSize=100
@@ -70,6 +104,7 @@ services:
       - "traefik.http.routers.mydash-ssl.entrypoints=websecure"
       - "traefik.http.routers.mydash-ssl.rule=Host(`traefik.mydomain.com`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
       - "traefik.http.routers.mydash-ssl.service=api@internal" # 連接到內建的 dashboard 服務
+      ### 【注意】此處預設使用 TLS-ALPN-01 (letsencrypt)。若要換成 HTTP 驗證，需改為 letsencrypt-http
       - "traefik.http.routers.mydash-ssl.tls=true"
       - "traefik.http.routers.mydash-ssl.tls.certresolver=letsencrypt"
 
