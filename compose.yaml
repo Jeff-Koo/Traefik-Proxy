@@ -34,12 +34,19 @@ services:
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
 
-      ### [Optional] Get the trustedIPs with command:
-      ###  docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' traefik-proxy-traefik-1
-      # - --entrypoints.web.proxyProtocol.trustedIPs=xxx.xxx.xxx.xxx/32
-      # - --entrypoints.web.proxyProtocol.insecure=true
-      # - --entrypoints.websecure.proxyProtocol.trustedIPs=xxx.xxx.xxx.xxx/32
-      # - --entrypoints.websecure.proxyProtocol.insecure=true
+      ### ----------------------------------------------------------------------
+      ### ⚠️ 核心警告：以下 Proxy Protocol 設定「僅在前方有 HAProxy」時才可開啟！
+      ### ----------------------------------------------------------------------
+      ### 如果是「獨立通用版（直接面對外網）」，請務必將下面兩行【註解或刪除】！
+      ### 否則本機 curl (127.0.0.1) 或其他容器連線會因缺少 Proxy 標頭而直接被 Traefik 斷線 (Connection reset)。
+      ### 
+      ### [HAProxy 環境專用]:
+      ### - 172.18.0.1/32: 信任來自 Docker Gateway 的 HAProxy 流量 (目前橋接架構)
+      ### - 127.0.0.1/32 : 信任來自本機 Loopback 的 HAProxy 流量 (未來改本機嚴格轉發或 host 網路時免改設定)
+      ### 註：不可與 insecure=true 混用，精準指定 IP 才能確保真實客戶端 IP 不被外部偽造。
+      ### 查詢 Docker Gateway 指令：docker inspect -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}' <容器名稱如 traefik-proxy-traefik-1>
+      - --entrypoints.web.proxyProtocol.trustedIPs=127.0.0.1/32,172.18.0.1/32
+      - --entrypoints.websecure.proxyProtocol.trustedIPs=127.0.0.1/32,172.18.0.1/32
 
       ### 憑證解析器設定 - HTTP challenge (require :80)
       - --certificatesresolvers.letsencrypt-http.acme.email=my-email@email.com
