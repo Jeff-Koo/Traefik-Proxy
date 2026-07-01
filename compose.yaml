@@ -48,6 +48,15 @@ services:
       - --entrypoints.web.proxyProtocol.trustedIPs=127.0.0.1/32,172.18.0.1/32
       - --entrypoints.websecure.proxyProtocol.trustedIPs=127.0.0.1/32,172.18.0.1/32
 
+      ### ----------------------------------------------------------------------
+      ### 憑證解析器：HTTP-01 (Port 80) & TLS-ALPN-01 (Port 443) 共同外部挑戰機制
+      ### ----------------------------------------------------------------------
+      ### ⚠️ 外部連回型挑戰（HTTP/TLS）的 DNS 共同避坑指南：
+      ### 1. Let's Encrypt 只要連回主機，就一定會嚴格同時查詢 A (IPv4) 與 AAAA (IPv6) 紀錄。
+      ### 2. 若 CNAME 指向的 DDNS (如 xxx.tplinkdns.com) 在 AAAA 查詢時回傳錯誤 (NXDOMAIN/SERVFAIL)，
+      ###    不論是走 80 還是 443 挑戰，都會在第一步直接被 Let's Encrypt 拒絕核發。
+      ### 💡 解決方案：必須改用 A Record 直連 IPv4，或一勞永逸切換為下方的 DNS-01 (Cloudflare / Aliyun) 挑戰。
+
       ### 憑證解析器設定 - HTTP challenge (require :80)
       - --certificatesresolvers.letsencrypt-http.acme.email=my-email@email.com
       - --certificatesresolvers.letsencrypt-http.acme.storage=./acme.json
