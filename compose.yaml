@@ -86,8 +86,9 @@ services:
       - "traefik.enable=true"
 
       ### 宣告一個全域通用的「跳轉中間件」，從 HTTP 強制跳轉到 HTTPS
+      ### 使用 `permanent=false`（302 跳轉）避免瀏覽器將跳轉規則快取在本地，保有高彈性。
       - "traefik.http.middlewares.global-redirect-to-https.redirectscheme.scheme=https"
-      - "traefik.http.middlewares.global-redirect-to-https.redirectscheme.permanent=true"
+      - "traefik.http.middlewares.global-redirect-to-https.redirectscheme.permanent=false" 
 
       ### watchtower 自動更新 Traefik Docker Image 設定，預設為 false (不更新)
       # - "com.centurylinklabs.watchtower.enable=false"
