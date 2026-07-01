@@ -40,10 +40,40 @@ authusername:$2y$05$vI8K.../xxxxxxxxx
 
 ---
 
-## 📦 核心配置：`compose.yaml`
+## 📦 核心配置與初始化部署
 
-在專案根目錄建立 [compose.yaml](./compose.yaml)
+在專案根目錄建立 `compose.yaml` 後，請**務必**依照以下步驟初始化憑證檔案，否則 Traefik 將因安全機制拒絕啟動憑證解析器。
 
+---
+
+### 🛠️ 憑證檔案初始化三部曲
+
+> ⚠️ **為什麼這條流水線至關重要？**
+> 1. **防止資料夾誤建**：若不先手動 `touch` 建立檔案，Docker 掛載 Volume 時會自動將它們建立為「資料夾」，導致 Traefik 報錯。
+> 2. **符合 Traefik 安全規範**：Let's Encrypt 的私鑰會存於此處，Traefik 強制要求權限必須為 `600`（僅擁有者可讀寫），且強烈建議將擁有者設為 `root`，以防 Docker 運行時發生權限衝突。
+
+#### 步驟 1：建立憑證 JSON 空檔案
+```bash
+touch ./acme.json ./acme-staging.json
+```
+
+#### 步驟 2：強制修正擁有者與安全權限
+
+```bash
+# 1. 先將檔案擁有者轉移給最高權限 root
+sudo chown root:root ./acme.json ./acme-staging.json
+
+# 2. 限制檔案權限為僅擁有者(root)可讀寫 (0600)
+sudo chmod 600 ./acme.json ./acme-staging.json
+```
+
+#### 步驟 3：正式啟動 Traefik 容器
+
+確認檔案與權限皆就緒後，便可安全部署：
+
+```bash
+docker compose up -d
+```
 
 ---
 
