@@ -14,7 +14,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock  # 允許 Traefik 監聽 Docker 事件以動態發現服務
       - ./acme.json:/acme.json                     # 存放 Production 憑證的金鑰檔案
       - ./acme-staging.json:/acme-staging.json     # 存放 Staging 測試憑證的金鑰檔案
-      - ./logs/traefik.log:/traefik/logs/traefik.log
+      - ./logs:/traefik/logs                       # 掛載整個日誌資料夾
       - ./traefik.d:/traefik/traefik.d             # 外部動態設定目錄（File Provider）
     environment:
       ### CloudFlare DNS Challenge Provider 所需環境變數（需在同目錄下的 .env 檔案中定義）
